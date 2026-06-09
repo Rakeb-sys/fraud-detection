@@ -46,6 +46,10 @@ def feature_engineer(df: pd.DataFrame) -> pd.DataFrame:
     df['purchase_dayofweek'] = df['purchase_time'].dt.day_of_week
     df['purchase_month'] = df['purchase_time'].dt.month
     df['purchase_year'] = df['purchase_time'].dt.year
+    # Calculate the raw time difference in hours or seconds between Signup and Purchase time
+    df['signup_to_purchase_time'] = (df['purchase_time'] - df['signup_time']).dt.total_seconds() / 3600.0
+    # Create a highly indicative binary flag for immediate transactions (e.g., less than 5 seconds)
+    df['immediate_purchase'] = (df['signup_to_purchase_time'] <= (5 / 3600.0)).astype(int)
     
     return df
 

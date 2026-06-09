@@ -29,7 +29,8 @@ CATEGORICAL_COLS = [
     "device_id",
     "source",
     "browser",
-    "sex"
+    "sex",
+    "country"
 ]
 
 TARGET_COL = "class"

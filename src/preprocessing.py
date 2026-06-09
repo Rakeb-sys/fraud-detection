@@ -5,7 +5,18 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from constants import NUMERICAL_COLS, CATEGORICAL_COLS, TARGET_COL, COLUMN_NAMES
+from src.constants import NUMERICAL_COLS, CATEGORICAL_COLS, TARGET_COL, COLUMN_NAMES
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score,
+    confusion_matrix, ConfusionMatrixDisplay,
+    roc_curve, precision_recall_curve
+)
+# Resampling
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+
+import matplotlib.pyplot as plt
 
 # Setup structured logging
 logging.basicConfig(
@@ -89,7 +100,7 @@ class DataFrameLabelEncoder(BaseEstimator, TransformerMixin):
         # Isolate true strings for encoding, ignoring raw baseline timestamps
         self.cols_to_encode_ = [
             col for col in present_cols
-            if not pd.api.types.is_numeric_dtype(X[col])
+            if (not pd.api.types.is_numeric_dtype(X[col]) or col in (self.categorical_cols or []))
             and col not in ["signup_time", "purchase_time"]
         ]
 
@@ -97,8 +108,11 @@ class DataFrameLabelEncoder(BaseEstimator, TransformerMixin):
         self.fallback_maps_ = {}
         
         for col in self.cols_to_encode_:
+            
+            #Fill missing values and force everything to a clean string type
+            filled_series = X[col].fillna('unknown').astype(str)
             # Cast to string and include a universal unseen fallback label
-            unique_vals = X[col].astype(str).unique().tolist()
+            unique_vals =filled_series.unique().tolist()
             if 'unknown' not in unique_vals:
                 unique_vals.append('unknown')
                 
@@ -142,3 +156,56 @@ def scale_features(
     X_test_scaled = scaler_transformer.transform(X_test)
     
     return X_train_scaled, X_val_scaled, X_test_scaled, scaler_transformer.scaler_
+
+
+def evaluate(name, model, X_test_sc, y_test, color='#3498db'):
+    """
+    Evaluate a trained model.
+    Automatically finds the threshold that gives the best F1 score,
+    then reports all metrics at that threshold.
+    """
+    # Get probability scores (not hard labels)
+    proba = model.predict_proba(X_test_sc)[:, 1]  # probability of being Default
+
+    # Find the best threshold: sweep all possible cut-offs
+    # and pick the one that maximises F1
+    prec_arr, rec_arr, thresholds = precision_recall_curve(y_test, proba)
+    f1_arr    = 2 * prec_arr * rec_arr / (prec_arr + rec_arr + 1e-9)
+    best_idx  = np.argmax(f1_arr)
+    best_thresh = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
+
+    # Apply the best threshold
+    y_pred = (proba >= best_thresh).astype(int)
+
+    # Compute all metrics
+    rec   = recall_score(y_test, y_pred, zero_division=0)
+    prec  = precision_score(y_test, y_pred, zero_division=0)
+    f1    = f1_score(y_test, y_pred, zero_division=0)
+    aucpr = average_precision_score(y_test, proba)  # threshold-independent
+    aucroc= roc_auc_score(y_test, proba)
+
+    print(f'\n=== {name} ===  (best threshold: {best_thresh:.2f})')
+    print(f'  Recall    : {rec:.2%}  ← % of real defaults caught')
+    print(f'  Precision : {prec:.2%}  ← % of alerts that are real')
+    print(f'  F1-Score  : {f1:.4f}')
+    print(f'  AUC-PR    : {aucpr:.4f}  ← primary metric (threshold-independent)')
+    print(f'  AUC-ROC   : {aucroc:.4f}')
+
+    # Confusion matrix
+    fig, ax = plt.subplots(figsize=(4.5, 3.5))
+    ConfusionMatrixDisplay(
+        confusion_matrix(y_test, y_pred),
+        display_labels=['Repaid', 'Default']
+    ).plot(ax=ax, cmap='Blues', colorbar=False)
+    caught = confusion_matrix(y_test, y_pred)[1, 1]
+    total  = y_test.sum()
+    ax.set_title(f'{name}\nCaught {caught}/{total} defaults  |  Recall={rec:.0%}',
+                 fontweight='bold', fontsize=10)
+    plt.tight_layout()
+    plt.show()
+
+    # Return metrics for later comparison
+    return dict(name=name, recall=rec, precision=prec, f1=f1,
+                auc_pr=aucpr, auc_roc=aucroc,
+                threshold=best_thresh, proba=proba, y_pred=y_pred)
+

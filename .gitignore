@@ -1,0 +1,14 @@
+data/
+venv/
+.venv/
+.env
+data/
+*.csv
+*.json
+*.log
+*.db
+__pycache__/
+*.pyc 
+/config.local
+/tmp
+/cache

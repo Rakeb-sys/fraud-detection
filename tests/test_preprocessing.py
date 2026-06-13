@@ -85,4 +85,6 @@ class Test_feature_engineer:
         for col in expected_cols:
             assert col in processed_df.columns
 
-        
+    def test_shape_has_more_columns(self, sample_df):
+        result = FeatureEngineerTransform(sample_df)
+        assert result.shape[1] > sample_df.shape[1]
